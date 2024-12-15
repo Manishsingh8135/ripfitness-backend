@@ -5,25 +5,40 @@ import { PaginatedResult, PaginationParams, QueryOptions } from '../types/common
 export abstract class BaseRepository<T extends BaseDocument> {
   constructor(protected readonly model: Model<T>) {}
 
+  protected getNotDeletedFilter(filter: FilterQuery<T> = {}): FilterQuery<T> {
+    return {
+      ...filter,
+      $or: [
+        { isDeleted: { $exists: false } },
+        { isDeleted: false }
+      ]
+    } as FilterQuery<T>;
+  }
+
   async create(data: Partial<T>): Promise<T> {
     const entity = new this.model(data);
     return entity.save();
   }
 
   async findById(id: string, options: QueryOptions = {}): Promise<T | null> {
-    const query = this.model.findById(id);
+    const query = this.model.findById(id).where({
+      $or: [
+        { isDeleted: { $exists: false } },
+        { isDeleted: false }
+      ]
+    });
     this.applyQueryOptions(query, options);
     return query.exec();
   }
 
   async findOne(filter: FilterQuery<T>, options: QueryOptions = {}): Promise<T | null> {
-    const query = this.model.findOne(filter);
+    const query = this.model.findOne(this.getNotDeletedFilter(filter));
     this.applyQueryOptions(query, options);
     return query.exec();
   }
 
   async find(filter: FilterQuery<T>, options: QueryOptions = {}): Promise<T[]> {
-    const query = this.model.find(filter);
+    const query = this.model.find(this.getNotDeletedFilter(filter));
     this.applyQueryOptions(query, options);
     return query.exec();
   }
@@ -37,12 +52,14 @@ export abstract class BaseRepository<T extends BaseDocument> {
     const limit = params.limit || 10;
     const skip = (page - 1) * limit;
 
-    const query = this.model.find(filter);
+    const finalFilter = this.getNotDeletedFilter(filter);
+
+    const query = this.model.find(finalFilter);
     this.applyQueryOptions(query, options);
 
     const [items, total] = await Promise.all([
       query.skip(skip).limit(limit).exec(),
-      this.model.countDocuments(filter),
+      this.model.countDocuments(finalFilter),
     ]);
 
     const pages = Math.ceil(total / limit);
@@ -63,7 +80,11 @@ export abstract class BaseRepository<T extends BaseDocument> {
     update: UpdateQuery<T>,
     options: QueryOptions = {},
   ): Promise<T | null> {
-    const query = this.model.findOneAndUpdate(filter, update, { new: true });
+    const query = this.model.findOneAndUpdate(
+      this.getNotDeletedFilter(filter),
+      update,
+      { new: true }
+    );
     this.applyQueryOptions(query, options);
     return query.exec();
   }

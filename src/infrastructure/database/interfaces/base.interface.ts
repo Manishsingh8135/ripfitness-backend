@@ -1,11 +1,10 @@
 import { Document, Types } from 'mongoose';
 
 export interface BaseDocument extends Document {
-  _id: Types.ObjectId;
+  isDeleted?: boolean;
+  deletedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
-  deletedAt?: Date;
-  isDeleted?: boolean;
 }
 
 export interface BaseEntityProps {
