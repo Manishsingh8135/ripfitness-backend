@@ -1,8 +1,8 @@
 import { Test } from '@nestjs/testing';
 import { MongooseModule } from '@nestjs/mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
-import mongoose from 'mongoose';
-import { User, UserDocument, UserSchema } from '../entities/user.entity';
+import mongoose, { Types } from 'mongoose';
+import { User, UserRole, UserSchema } from '../schemas/user.schema';
 import { UserRepository } from '../repositories/user.repository';
 
 describe('UserRepository', () => {
@@ -10,7 +10,6 @@ describe('UserRepository', () => {
   let mongod: MongoMemoryServer;
 
   beforeAll(async () => {
-    // Create in-memory MongoDB instance
     mongod = await MongoMemoryServer.create();
     const uri = mongod.getUri();
 
@@ -23,8 +22,6 @@ describe('UserRepository', () => {
     }).compile();
 
     userRepository = module.get<UserRepository>(UserRepository);
-
-    // Wait for MongoDB connection to be established
     await mongoose.connect(uri);
   });
 
@@ -45,69 +42,100 @@ describe('UserRepository', () => {
     }
   });
 
-  it('should create a user with all fields', async () => {
+  it('should create a user with required fields', async () => {
     const userData = {
+      firstName: 'John',
+      lastName: 'Doe',
       email: 'test@example.com',
-      clerkId: 'clerk_123',
+      password: 'hashedPassword123',
+      role: UserRole.USER,
+      isEmailVerified: false,
       isActive: true,
-      role: 'member',
-      profile: {
-        firstName: 'John',
-        lastName: 'Doe',
-        dateOfBirth: new Date('1990-01-01'),
-        gender: 'male',
-        phoneNumber: '+1234567890',
-        avatarUrl: 'https://example.com/avatar.jpg',
-        bio: 'Fitness enthusiast',
-        fitnessLevel: 'intermediate',
-        preferredWorkoutTime: 'morning',
-        goals: ['Weight loss', 'Muscle gain'],
-      },
     };
 
     const user = await userRepository.create(userData);
 
     expect(user).toBeDefined();
     expect(user._id).toBeDefined();
+    expect(user.firstName).toBe(userData.firstName);
+    expect(user.lastName).toBe(userData.lastName);
     expect(user.email).toBe(userData.email);
-    expect(user.clerkId).toBe(userData.clerkId);
+    expect(user.password).toBe(userData.password);
     expect(user.role).toBe(userData.role);
-    expect(user.profile.firstName).toBe(userData.profile.firstName);
-    expect(user.profile.lastName).toBe(userData.profile.lastName);
-    expect(user.profile.gender).toBe(userData.profile.gender);
-    expect(user.profile.fitnessLevel).toBe(userData.profile.fitnessLevel);
-    expect(user.profile.preferredWorkoutTime).toBe(userData.profile.preferredWorkoutTime);
-    expect(user.profile.goals).toHaveLength(2);
+    expect(user.isEmailVerified).toBe(userData.isEmailVerified);
+    expect(user.isActive).toBe(userData.isActive);
     expect(user.createdAt).toBeDefined();
     expect(user.updatedAt).toBeDefined();
   });
 
   it('should enforce unique email constraint', async () => {
     const userData = {
+      firstName: 'John',
+      lastName: 'Doe',
       email: 'unique@example.com',
-      clerkId: 'clerk_456',
-      role: 'member',
+      password: 'hashedPassword123',
+      role: UserRole.USER,
     };
 
     await userRepository.create(userData);
-
     await expect(userRepository.create(userData)).rejects.toThrow();
   });
 
-  it('should enforce unique clerkId constraint', async () => {
+  it('should find user by id', async () => {
     const userData = {
-      email: 'another@example.com',
-      clerkId: 'clerk_789',
-      role: 'member',
+      firstName: 'John',
+      lastName: 'Doe',
+      email: 'find@example.com',
+      password: 'hashedPassword123',
+      role: UserRole.USER,
     };
 
-    await userRepository.create(userData);
+    const createdUser = await userRepository.create(userData);
+    const foundUser = await userRepository.findById(createdUser._id);
 
-    await expect(
-      userRepository.create({
-        ...userData,
-        email: 'different@example.com',
-      }),
-    ).rejects.toThrow();
+    expect(foundUser).toBeDefined();
+    expect(foundUser._id).toEqual(createdUser._id);
+    expect(foundUser.email).toBe(userData.email);
+  });
+
+  it('should update user', async () => {
+    const userData = {
+      firstName: 'John',
+      lastName: 'Doe',
+      email: 'update@example.com',
+      password: 'hashedPassword123',
+      role: UserRole.USER,
+    };
+
+    const createdUser = await userRepository.create(userData);
+    const updateData = { firstName: 'Jane' };
+
+    const updatedUser = await userRepository.update(
+      { _id: createdUser._id },
+      updateData,
+    );
+
+    expect(updatedUser).toBeDefined();
+    expect(updatedUser.firstName).toBe(updateData.firstName);
+  });
+
+  it('should soft delete user', async () => {
+    const userData = {
+      firstName: 'John',
+      lastName: 'Doe',
+      email: 'delete@example.com',
+      password: 'hashedPassword123',
+      role: UserRole.USER,
+      isActive: true,
+    };
+
+    const createdUser = await userRepository.create(userData);
+    await userRepository.update(
+      { _id: createdUser._id },
+      { isActive: false }
+    );
+
+    const deletedUser = await userRepository.findById(createdUser._id);
+    expect(deletedUser.isActive).toBe(false);
   });
 });
