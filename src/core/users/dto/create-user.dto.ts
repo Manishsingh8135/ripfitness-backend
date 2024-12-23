@@ -2,6 +2,7 @@ import { IsString, IsEmail, IsOptional, IsEnum, ValidateNested, MinLength, IsNot
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { UserRole } from '../schemas/user.schema';
+import { UserPermission } from '../schemas/user.schema';
 
 export class UserProfileDto {
   @ApiPropertyOptional()
@@ -94,4 +95,13 @@ export class CreateUserDto {
   @Type(() => UserProfileDto)
   @IsOptional()
   profile?: UserProfileDto;
+
+  @ApiPropertyOptional({
+    enum: UserPermission,
+    isArray: true,
+    description: 'User permissions',
+  })
+  @IsEnum(UserPermission, { each: true })
+  @IsOptional()
+  permissions?: UserPermission[];
 }

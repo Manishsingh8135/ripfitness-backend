@@ -3,8 +3,9 @@ import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
-import { User } from '../users/schemas/user.schema';
+import { User, UserDocument } from '../users/schemas/user.schema';
 import * as bcrypt from 'bcrypt';
+import { Types } from 'mongoose';
 
 @Injectable()
 export class AuthService {
@@ -13,7 +14,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {}
 
-  async validateUser(email: string, password: string): Promise<any> {
+  async validateUser(email: string, password: string): Promise<UserDocument> {
     const user = await this.usersService.validateCredentials(email, password);
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
@@ -41,21 +42,26 @@ export class AuthService {
     return this.generateAuthResponse(user);
   }
 
-  private generateAuthResponse(user: User) {
+  private generateAuthResponse(user: UserDocument | Partial<User>) {
+    // If it's a UserDocument, convert to plain object
+    const userObj = 'toObject' in user ? user.toObject() : user;
+
     const payload = {
-      email: user.email,
-      sub: user._id,
-      role: user.role,
+      email: userObj.email,
+      sub: userObj._id,
+      role: userObj.role,
+      permissions: userObj.permissions, // Include permissions in JWT
     };
 
     return {
       access_token: this.jwtService.sign(payload),
       user: {
-        id: user._id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        role: user.role,
+        id: userObj._id,
+        email: userObj.email,
+        firstName: userObj.firstName,
+        lastName: userObj.lastName,
+        role: userObj.role,
+        permissions: userObj.permissions, // Include permissions in response
       },
     };
   }

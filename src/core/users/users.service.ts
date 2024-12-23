@@ -2,7 +2,7 @@ import { Injectable, ConflictException, NotFoundException, BadRequestException }
 import { UserRepository } from './repositories/user.repository';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { User, UserRole, UserDocument } from './schemas/user.schema';
+import { User, UserRole, UserPermission, UserDocument } from './schemas/user.schema';
 import * as bcrypt from 'bcrypt';
 import { Types } from 'mongoose';
 
@@ -10,7 +10,7 @@ import { Types } from 'mongoose';
 export class UsersService {
   constructor(private readonly userRepository: UserRepository) {}
 
-  async create(createUserDto: CreateUserDto): Promise<User> {
+  async create(createUserDto: CreateUserDto): Promise<Partial<User>> {
     // Validate email format
     if (!this.isValidEmail(createUserDto.email)) {
       throw new BadRequestException('Invalid email format');
@@ -42,10 +42,122 @@ export class UsersService {
 
     // Remove password from response
     const { password, ...result } = user.toObject();
-    return result as User;
+    return result;
   }
 
-  async findAll(options: { role?: UserRole; isActive?: boolean } = {}): Promise<User[]> {
+  async findByEmail(email: string): Promise<UserDocument | null> {
+    return this.userRepository.findOne({ email: email.toLowerCase() });
+  }
+
+  async findById(id: string): Promise<UserDocument | null> {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new BadRequestException('Invalid user ID');
+    }
+    return this.userRepository.findById(id);
+  }
+
+  async validateCredentials(
+    email: string,
+    password: string,
+  ): Promise<UserDocument | null> {
+    const user = await this.findByEmail(email);
+    if (!user) {
+      return null;
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      return null;
+    }
+
+    return user;
+  }
+
+  async update(id: string, updateUserDto: UpdateUserDto): Promise<Partial<User>> {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new BadRequestException('Invalid user ID');
+    }
+
+    const result = await this.userRepository.updateOne(
+      { _id: new Types.ObjectId(id) },
+      updateUserDto
+    );
+
+    if (!result) {
+      throw new NotFoundException('User not found');
+    }
+
+    const user = await this.findById(id);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const { password, ...resultUser } = user.toObject();
+    return resultUser;
+  }
+
+  async updateLastLogin(id: string | Types.ObjectId): Promise<void> {
+    await this.userRepository.updateOne(
+      { _id: new Types.ObjectId(id.toString()) },
+      { lastLogin: new Date() }
+    );
+  }
+
+  async delete(id: string): Promise<void> {
+    const result = await this.userRepository.deleteOne({ _id: new Types.ObjectId(id) });
+    if (!result) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+  }
+
+  async remove(id: string): Promise<void> {
+    return this.delete(id);
+  }
+
+  async createTrainer(createUserDto: CreateUserDto): Promise<Partial<User>> {
+    const trainerDto = {
+      ...createUserDto,
+      role: UserRole.TRAINER,
+      permissions: [
+        UserPermission.MANAGE_WORKOUTS,
+        UserPermission.MANAGE_CLASSES
+      ]
+    };
+    return this.create(trainerDto);
+  }
+
+  async createAdmin(createUserDto: CreateUserDto, isSuperAdmin: boolean = false): Promise<Partial<User>> {
+    const adminDto = {
+      ...createUserDto,
+      role: isSuperAdmin ? UserRole.SUPER_ADMIN : UserRole.ADMIN,
+      permissions: isSuperAdmin 
+        ? Object.values(UserPermission)
+        : [
+            UserPermission.MANAGE_USERS,
+            UserPermission.MANAGE_TRAINERS,
+            UserPermission.MANAGE_WORKOUTS,
+            UserPermission.MANAGE_CLASSES,
+            UserPermission.VIEW_ANALYTICS
+          ]
+    };
+    return this.create(adminDto);
+  }
+
+  async findAllByRole(role: UserRole): Promise<User[]> {
+    return this.userRepository.find({ role });
+  }
+
+  async findAllTrainers(): Promise<User[]> {
+    return this.findAllByRole(UserRole.TRAINER);
+  }
+
+  async findAllAdmins(): Promise<User[]> {
+    return this.userRepository.find({ 
+      role: { $in: [UserRole.ADMIN, UserRole.SUPER_ADMIN] } 
+    });
+  }
+
+  async findAll(options: { role?: UserRole; isActive?: boolean } = {}): Promise<Partial<User>[]> {
     const filter: any = {};
     if (options.role) filter.role = options.role;
     if (typeof options.isActive === 'boolean') filter.isActive = options.isActive;
@@ -53,92 +165,8 @@ export class UsersService {
     const users = await this.userRepository.find(filter);
     return users.map(user => {
       const { password, ...result } = user.toObject();
-      return result as User;
+      return result;
     });
-  }
-
-  async findById(id: string): Promise<UserDocument> {
-    // Validate MongoDB ID
-    if (!Types.ObjectId.isValid(id)) {
-      throw new BadRequestException('Invalid user ID');
-    }
-
-    const user = await this.userRepository.findById(id);
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-    return user;
-  }
-
-  async findByEmail(email: string): Promise<User | null> {
-    if (!email) return null;
-    return this.userRepository.findOne({ email: email.toLowerCase() });
-  }
-
-  async update(id: string, updateUserDto: UpdateUserDto): Promise<Partial<UserDocument>> {
-    const user = await this.findById(id);
-
-    // If email is being updated, check if it's already taken
-    if (updateUserDto.email && updateUserDto.email !== user.email) {
-      const emailExists = await this.findByEmail(updateUserDto.email);
-      if (emailExists) {
-        throw new ConflictException('Email already exists');
-      }
-    }
-
-    // If password is being updated, hash it
-    if (updateUserDto.password) {
-      updateUserDto.password = await bcrypt.hash(updateUserDto.password, 10);
-    }
-
-    // Update the user
-    Object.assign(user, updateUserDto);
-    const updatedUser = await user.save();
-    
-    // Convert to plain object and remove sensitive data
-    const userObject = updatedUser.toObject();
-    delete userObject.password;
-    return userObject;
-  }
-
-  async updateLastLogin(id: string): Promise<void> {
-    if (!Types.ObjectId.isValid(id)) {
-      throw new BadRequestException('Invalid user ID');
-    }
-
-    const result = await this.userRepository.update(
-      { _id: id },
-      { $set: { lastLogin: new Date() } },
-    );
-
-    if (!result) {
-      throw new NotFoundException('User not found');
-    }
-  }
-
-  async validateCredentials(email: string, password: string): Promise<User | null> {
-    const user = await this.userRepository.findOne({ email });
-
-    if (!user) return null;
-
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) return null;
-
-    // Remove password from response
-    const userObj = user.toObject ? user.toObject() : user;
-    const { password: _, ...result } = userObj;
-    return result as User;
-  }
-
-  async delete(id: string): Promise<void> {
-    if (!Types.ObjectId.isValid(id)) {
-      throw new BadRequestException('Invalid user ID');
-    }
-
-    const result = await this.userRepository.softDelete({ _id: id });
-    if (!result) {
-      throw new NotFoundException('User not found');
-    }
   }
 
   private isValidEmail(email: string): boolean {
@@ -147,7 +175,6 @@ export class UsersService {
   }
 
   private isValidPassword(password: string): boolean {
-    // At least 8 characters, 1 uppercase, 1 lowercase, 1 number, 1 special character
     const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
     return passwordRegex.test(password);
   }

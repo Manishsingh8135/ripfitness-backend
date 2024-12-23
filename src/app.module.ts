@@ -10,6 +10,7 @@ import redisConfig from './config/redis/redis.config';
 import s3Config from './config/s3/s3.config';
 import { DatabaseModule } from './infrastructure/database/database.module';
 import { UsersModule } from './core/users/users.module';
+import { AuthModule } from './core/auth/auth.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { UsersModule } from './core/users/users.module';
     // Event Emitter
     EventEmitterModule.forRoot(),
     // Core Modules
+    AuthModule,
     UsersModule,
   ],
   controllers: [AppController],
