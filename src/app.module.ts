@@ -11,6 +11,7 @@ import s3Config from './config/s3/s3.config';
 import { DatabaseModule } from './infrastructure/database/database.module';
 import { UsersModule } from './core/users/users.module';
 import { AuthModule } from './core/auth/auth.module';
+import { ProfilesModule } from './core/profiles/profiles.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { AuthModule } from './core/auth/auth.module';
     // Core Modules
     AuthModule,
     UsersModule,
+    ProfilesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
